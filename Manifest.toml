@@ -523,13 +523,17 @@ version = "1.10.0"
 
 [[deps.TensorKit]]
 deps = ["HalfIntegers", "LRUCache", "LinearAlgebra", "PackageExtensionCompat", "Strided", "TensorOperations", "TupleTools", "VectorInterface", "WignerSymbols"]
-git-tree-sha1 = "b060923b0d2414452857c33545b6d67266dad590"
+git-tree-sha1 = "560a874b9fce7e107b88ebf8df05120e6802271c"
 uuid = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
-version = "0.12.2"
-weakdeps = ["ChainRulesCore"]
+version = "0.12.7"
 
     [deps.TensorKit.extensions]
     TensorKitChainRulesCoreExt = "ChainRulesCore"
+    TensorKitFiniteDifferencesExt = "FiniteDifferences"
+
+    [deps.TensorKit.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 
 [[deps.TensorOperations]]
 deps = ["LRUCache", "LinearAlgebra", "PackageExtensionCompat", "Strided", "StridedViews", "TupleTools", "VectorInterface"]

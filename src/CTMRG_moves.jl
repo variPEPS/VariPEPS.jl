@@ -1,15 +1,17 @@
 function create_projector_l(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type = ℝ, Projector_type = Projector_type, svd_type = :GKL, trunc_sv_out = false)
-    if l == 1
-        m = Ly
-    else
-        m = l - 1
-    end
+    m = mod(l-2,Ly)+1
+    #if l == 1
+    #    m = Ly
+    #else
+    #    m = l - 1
+    #end
     
-    if k == Lx
-        n = 1
-    else
-        n = k+1
-    end
+    n = mod(k,Lx) + 1
+    #if k == Lx
+    #    n = 1
+    #else
+    #    n = k+1
+    #end
     
     if Projector_type == :half
     
@@ -45,14 +47,18 @@ function create_projector_l(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
                                             env[k,l].l[w1,u1d,u1u,i] * conj(loc_d[k,l][u1d,w2d,u2d,j1,a]) * loc[k,l][u1u,w2u,u2u,j2,a] *
                                             conj(loc_d[n,l][u2d,w3d,u3d,β1,b]) * loc[n,l][u2u,w3u,u3u,β2,b] * env[n,l].r[u3d,u3u,w4,α] end 
         
-        U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        #U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, χ = Bond_env, svd_type = :full)
         
-        S_u_sqrt = sqrtTM(S_u)
+        #S_u_sqrt = sqrtTM(S_u)
+        S_u_sqrt = sqrt(S_u)
+
+        #U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, χ = Bond_env, svd_type = :full)
         
-        U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
-        
-        S_d_sqrt = sqrtTM(S_d)
-        
+        #S_d_sqrt = sqrtTM(S_d)
+        S_d_sqrt = sqrt(S_d)
+
         Ku = U_u * S_u_sqrt
         
         Kd = U_d * S_d_sqrt
@@ -62,17 +68,21 @@ function create_projector_l(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 
         @tensor L[(β);(α)] := Kd[v1,v2,v3,β]*Ku[v1,v2,v3,α]
         
-        U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, split = :no, svd_type = svd_type);
+        #U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, split = :no, svd_type = svd_type);
+        U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, χ = Bond_env, svd_type = svd_type, space_type = Space_type);
 
-        S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+        #S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+        S_L_chi_inv_sqrt = pinv(sqrt(S_L_chi); rtol = 10^-8)
 
         @tensor Pup[(i,);(j1,j2,j3)] := S_L_chi_inv_sqrt[i,v1] *  U_L_chi'[v1,β] * Kd[j1,j2,j3,β]
         @tensor Pdown[(i1,i2,i3);(j,)] := Ku[i1,i2,i3,α] * V_L_chi_d'[α,v2] * S_L_chi_inv_sqrt[v2,j]
         P = (Pu = Pup, Pd = Pdown)
+
         if trunc_sv_out == true
 
             #this might need to be ignored for AD - but probably not
-            trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2)))
+            #trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2)))
+            trunc_err = sqrt(abs(1-(norm(S_L_chi)^2/norm(L)^2)))
             return P, trunc_err 
         else
             return P
@@ -85,10 +95,14 @@ function create_projector_l(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
     
     @tensor L[(β1,β2,β3);(α1,α2,α3)] := Kd[v1,v2,v3,β1,β2,β3]*Ku[v1,v2,v3,α1,α2,α3]
 
-    
-    U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, svd_type = svd_type);
+    #display(L)
+    #U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, svd_type = svd_type);
+    U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, χ = Bond_env, svd_type = svd_type, space_type = Space_type);
+    #display(S_L_chi)
+    #S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+    S_L_chi_inv_sqrt = pinv(sqrt_sv(S_L_chi); rtol = 10^-8)
 
-    S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+    #display(S_L_chi_inv_sqrt)
 
     @tensor Pup[(i,);(j1,j2,j3)] := S_L_chi_inv_sqrt[i,v1] *  U_L_chi'[v1,β1,β2,β3] * Kd[j1,j2,j3,β1,β2,β3]
     @tensor Pdown[(i1,i2,i3);(j,)] := Ku[i1,i2,i3,α1,α2,α3] * V_L_chi_d'[α1,α2,α3,v2] * S_L_chi_inv_sqrt[v2,j]
@@ -99,7 +113,8 @@ function create_projector_l(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 
         #this might need to be ignored for AD - but probably not
         #sv_trunc_ratio = diag(S_L_chi.data)[end] / diag(S_L_chi.data)[1]
-        trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2))) #take the reals to prevent the value becoming negative at machine precision
+        #trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2))) #take the reals to prevent the value becoming negative at machine precision
+        trunc_err = sqrt(abs(1-(norm(S_L_chi)^2/norm(L)^2))) #take the reals to prevent the value becoming negative at machine precision
 
         return P, trunc_err 
     else
@@ -108,11 +123,14 @@ function create_projector_l(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 end
 
 function absorb_and_project_tensors_l(env, loc, loc_d, p_dict, k, l, Lx, Ly)
-    if l == Ly
-        m = 1
-    else
-        m = l+1
-    end
+    
+    m = mod(l,Ly) + 1
+
+    #if l == Ly
+    #    m = 1
+    #else
+    #    m = l+1
+    #end
     
     #keep in mind: p_dict[l] are the projectors above row l & p_dict[l+1] are the ones below. 
     
@@ -134,6 +152,7 @@ function absorb_and_project_tensors_l(env, loc, loc_d, p_dict, k, l, Lx, Ly)
 end
 
 function update_donealready(arr, k, i, Pattern_arr)
+    #this could be done differently, but it gets the job done.
     L = length(arr)
     bf = Buffer(arr, L)
            
@@ -143,13 +162,18 @@ function update_donealready(arr, k, i, Pattern_arr)
     return copy(bf)
 end
 
-function projectors_l(env, loc, loc_d, Bond_env, k, Lx, Ly, donealready, Pattern_arr;  Space_type = Space_type, Projector_type = Projector_type, svd_type = :GKL)
+function projectors_l(env, loc, loc_d, Bond_env, k, donealready, Pattern_arr;  Space_type = Space_type, Projector_type = Projector_type, svd_type = :GKL)
     
-    if k == Lx
-        m = 1
-    else
-        m = k+1
-    end
+    Lx = size(Pattern_arr)[1]
+    Ly = size(Pattern_arr)[2]
+
+    m = mod(k,Lx)+1
+
+    #if k == Lx
+    #    m = 1
+    #else
+    #    m = k+1
+    #end
     
     
     buf = Buffer([], NamedTuple, Ly)
@@ -167,13 +191,19 @@ function projectors_l(env, loc, loc_d, Bond_env, k, Lx, Ly, donealready, Pattern
 end
 
 #the function below has an additional argument in multiple dispach!
-function projectors_l(env, loc, loc_d, Bond_env, k, Lx, Ly, donealready, Pattern_arr, trunc_sv_arr;  Space_type = Space_type, Projector_type = Projector_type, svd_type = :GKL)
+function projectors_l(env, loc, loc_d, Bond_env, k, donealready, Pattern_arr, trunc_sv_arr;  Space_type = Space_type, Projector_type = Projector_type, svd_type = :GKL)
     
-    if k == Lx
-        m = 1
-    else
-        m = k+1
-    end
+
+    Lx = size(Pattern_arr)[1]
+    Ly = size(Pattern_arr)[2]
+
+    m = mod(k,Lx)+1
+
+    #if k == Lx
+    #    m = 1
+    #else
+    #    m = k+1
+    #end
     
 
     proj = Array{NamedTuple}(undef,Ly)
@@ -194,13 +224,17 @@ function projectors_l(env, loc, loc_d, Bond_env, k, Lx, Ly, donealready, Pattern
     return proj, trunc_sv_arr
 end
 
-function absorb_and_project_l(env, loc, loc_d, p_dict, k, Lx, Ly, donealready, Pattern_arr)
+function absorb_and_project_l(env, loc, loc_d, p_dict, k, donealready, Pattern_arr)
     
-    if k == Lx
-        m = 1
-    else
-        m = k+1
-    end
+    Lx = size(Pattern_arr)[1]
+    Ly = size(Pattern_arr)[2]
+
+    m = mod(k,Lx)+1
+    #if k == Lx
+    #    m = 1
+    #else
+    #    m = k+1
+    #end
     
     
     
@@ -219,13 +253,17 @@ function absorb_and_project_l(env, loc, loc_d, p_dict, k, Lx, Ly, donealready, P
     return copy(buf)
 end
 
-function update_l(new_env, env_arr, k, Lx, Ly, donealready, Pattern_arr)
+function update_l(new_env, env_arr, k, donealready, Pattern_arr)
     
-    if k == Lx
-        m = 1
-    else
-        m = k+1
-    end
+    Lx = size(Pattern_arr)[1]
+    Ly = size(Pattern_arr)[2]
+
+    m = mod(k,Lx)+1
+    #if k == Lx
+    #    m = 1
+    #else
+    #    m = k+1
+    #end
     
     
     buf = Buffer([], NamedTuple, length(env_arr))
@@ -253,10 +291,12 @@ function update_l(new_env, env_arr, k, Lx, Ly, donealready, Pattern_arr)
     return copy(buf), donealready
 end
 
-function multi_left_move(env_arr, loc, loc_d, Lx, Ly, Bond_env, Pattern_arr; Space_type = ℝ, Projector_type = Projector_type, svd_type = :GKL, trunc_sv_arr = false)
+function multi_left_move(env_arr, loc, loc_d, Bond_env, Pattern_arr; Space_type = ℝ, Projector_type = Projector_type, svd_type = :GKL, trunc_sv_arr = false)
         
     env = pattern_function(env_arr, Pattern_arr)
     
+    Lx = size(Pattern_arr)[1]
+    Ly = size(Pattern_arr)[2]
     #the absorption happens column by column for all L_x columns of the unit cell
      
     donealready = []
@@ -264,18 +304,18 @@ function multi_left_move(env_arr, loc, loc_d, Lx, Ly, Bond_env, Pattern_arr; Spa
     for k in 1:Lx  
 
         if trunc_sv_arr == false
-            p_dict = projectors_l(env, loc, loc_d, Bond_env, k, Lx, Ly, donealready, Pattern_arr;  Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
+            p_dict = projectors_l(env, loc, loc_d, Bond_env, k, donealready, Pattern_arr;  Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
         else 
             #here I pass the list of truncations "trunc_sv_arr" as well and use multiple dispach.
-            p_dict, trunc_sv_arr = projectors_l(env, loc, loc_d, Bond_env, k, Lx, Ly, donealready, Pattern_arr, trunc_sv_arr;  Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
+            p_dict, trunc_sv_arr = projectors_l(env, loc, loc_d, Bond_env, k, donealready, Pattern_arr, trunc_sv_arr;  Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
         end
         
-        new_env = absorb_and_project_l(env, loc, loc_d, p_dict, k, Lx, Ly, donealready, Pattern_arr)
+        new_env = absorb_and_project_l(env, loc, loc_d, p_dict, k, donealready, Pattern_arr)
         
         #put the updated tensors into the environment array
         #build in a condition for k = Lx
         
-        env_arr, donealready = update_l(new_env, env_arr, k, Lx, Ly, donealready, Pattern_arr)
+        env_arr, donealready = update_l(new_env, env_arr, k, donealready, Pattern_arr)
         
     end
 
@@ -289,6 +329,7 @@ end
 
 
 function create_projector_u(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type = ℝ, Projector_type = Projector_type, svd_type = :GKL, trunc_sv_out = false)
+    
     if k == 1
         m = Lx
     else
@@ -338,13 +379,17 @@ function create_projector_u(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
                                             conj(loc_d[m,n][w3d,u3d,β1,u2d,b]) * loc[m,n][w3u,u3u,β2,u2u,b] * env[m,n].d[w4,α,u3d,u3u] end 
 
         
-        U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        #U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, χ = Bond_env, svd_type = :full)
         
-        S_u_sqrt = sqrtTM(S_u)
+        #S_u_sqrt = sqrtTM(S_u)
+        S_u_sqrt = sqrt(S_u)
         
-        U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
-        
-        S_d_sqrt = sqrtTM(S_d)
+        #U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, χ = Bond_env, svd_type = :full)
+
+        #S_d_sqrt = sqrtTM(S_d)
+        S_d_sqrt = sqrt(S_d)
         
         Ku = U_u * S_u_sqrt
         
@@ -355,10 +400,12 @@ function create_projector_u(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 
         @tensor L[(β);(α)] := Kd[v1,v2,v3,β]*Ku[v1,v2,v3,α]
         
-        U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, split = :no, svd_type = svd_type);
+        #U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, split = :no, svd_type = svd_type);
+        U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, χ = Bond_env, svd_type = svd_type, space_type = Space_type);
 
-        S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
-        
+        #S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+        S_L_chi_inv_sqrt = pinv(sqrt_sv(S_L_chi); rtol = 10^-8)
+
         @tensor Pup[(i,);(j1,j2,j3)] := S_L_chi_inv_sqrt[i,v1] *  U_L_chi'[v1,β] * Kd[j1,j2,j3,β]
         @tensor Pdown[(i1,i2,i3);(j,)] := Ku[i1,i2,i3,α] * V_L_chi_d'[α,v2] * S_L_chi_inv_sqrt[v2,j]
 
@@ -382,10 +429,12 @@ function create_projector_u(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
     
     @tensor L[(β1,β2,β3);(α1,α2,α3)] := Kd[v1,v2,v3,β1,β2,β3]*Ku[v1,v2,v3,α1,α2,α3]
 
-    U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, svd_type= svd_type);
+    #U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, svd_type= svd_type);
+    U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, χ = Bond_env, svd_type= svd_type, space_type = Space_type);
 
 
-    S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+    #S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+    S_L_chi_inv_sqrt = pinv(sqrt_sv(S_L_chi); rtol = 10^-8)
 
 
     @tensor Pup[(i,);(j1,j2,j3)] := S_L_chi_inv_sqrt[i,v1] *  U_L_chi'[v1,β1,β2,β3] * Kd[j1,j2,j3,β1,β2,β3]
@@ -397,7 +446,8 @@ function create_projector_u(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 
         #this might need to be ignored for AD - but probably not
         #sv_trunc_ratio = diag(S_L_chi.data)[end] / diag(S_L_chi.data)[1]
-        trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2)))
+        #trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2)))
+        trunc_err = sqrt(abs(1-(norm(S_L_chi)^2/norm(L)^2)))
 
         return P, trunc_err 
     else
@@ -604,13 +654,17 @@ function create_projector_r(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
                                                 env[n,l].l[w1,u1d,u1u,α] * conj(loc_d[n,l][u1d,w2d,u2d,β1,a]) * loc[n,l][u1u,w2u,u2u,β2,a] *
                                                 conj(loc_d[k,l][u2d,w3d,u3d,k1,b]) * loc[k,l][u2u,w3u,u3u,k2,b] * env[k,l].r[u3d,u3u,w4,l] end 
         
-        U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        #U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, χ = Bond_env, svd_type = :full)
         
-        S_u_sqrt = sqrtTM(S_u)
+        #S_u_sqrt = sqrtTM(S_u)
+        S_u_sqrt = sqrt(S_u)
         
-        U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        #U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, χ = Bond_env, svd_type = :full)
         
-        S_d_sqrt = sqrtTM(S_d)
+        #S_d_sqrt = sqrtTM(S_d)
+        S_d_sqrt = sqrt(S_d)
         
         Ku = S_u_sqrt * V_u_dag
         
@@ -621,11 +675,13 @@ function create_projector_r(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 
         @tensor L[(β);(α)] := Kd[β,v1,v2,v3]*Ku[α,v1,v2,v3]
         
-        U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, split = :no, svd_type = svd_type);
+        #U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, split = :no, svd_type = svd_type);
+        U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, χ = Bond_env, svd_type = svd_type, space_type = Space_type);
 
 
-        S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
-        
+        #S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+        S_L_chi_inv_sqrt = pinv(sqrt_sv(S_L_chi); rtol = 10^-8)
+
         @tensor Pup[(i,);(j1,j2,j3)] := S_L_chi_inv_sqrt[i,v1] *  U_L_chi'[v1,β] *Kd[β,j1,j2,j3]
         @tensor Pdown[(i1,i2,i3);(j,)] := Ku[α,i1,i2,i3] * V_L_chi_d'[α,v2] * S_L_chi_inv_sqrt[v2,j]
 
@@ -649,9 +705,11 @@ function create_projector_r(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
     
     @tensor L[(β1,β2,β3);(α1,α2,α3)] := Kd[β1,β2,β3,v1,v2,v3]*Ku[α1,α2,α3,v1,v2,v3]
 
-    U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, svd_type = svd_type);
+    #U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, svd_type = svd_type);
+    U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, χ = Bond_env, svd_type = svd_type, space_type = Space_type);
 
-    S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+    #S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+    S_L_chi_inv_sqrt = pinv(sqrt_sv(S_L_chi); rtol = 10^-8)
 
     
     @tensor Pup[(i,);(j1,j2,j3)] := S_L_chi_inv_sqrt[i,v1] *  U_L_chi'[v1,β1,β2,β3] *Kd[β1,β2,β3,j1,j2,j3]
@@ -663,7 +721,9 @@ function create_projector_r(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 
         #this might need to be ignored for AD - but probably not
         #sv_trunc_ratio = diag(S_L_chi.data)[end] / diag(S_L_chi.data)[1]
-        trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2)))
+        #trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2)))
+        trunc_err = sqrt(abs(1-(norm(S_L_chi)^2/norm(L)^2)))
+
 
         return P, trunc_err 
     else
@@ -872,14 +932,18 @@ function create_projector_d(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
                                         env[m,n].u[w1,u1d,u1u,α] * conj(loc_d[m,n][w2d,u2d,β1,u1d,a]) * loc[m,n][w2u,u2u,β2,u1u,a] *
                                         conj(loc_d[m,l][w3d,u3d,k1,u2d,b]) * loc[m,l][w3u,u3u,k2,u2u,b] * env[m,l].d[w4,l,u3d,u3u] end 
         
-        U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        #U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        U_u, S_u, V_u_dag = unique_tsvd(Ku_pre, χ = Bond_env, svd_type = :full)
         
-        S_u_sqrt = sqrtTM(S_u)
+        #S_u_sqrt = sqrtTM(S_u)
+        S_u_sqrt = sqrt(S_u)
+
+        #U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
+        U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, χ = Bond_env, svd_type = :full)
         
-        U_d, S_d, V_d_dag = unique_tsvd(Kd_pre, Bond_env, Space_type = Space_type, svd_type = :accuracy)
-        
-        S_d_sqrt = sqrtTM(S_d)
-        
+        #S_d_sqrt = sqrtTM(S_d)
+        S_d_sqrt = sqrt(S_d)
+
         Ku = S_u_sqrt * V_u_dag
         
         Kd = S_d_sqrt * V_d_dag
@@ -889,11 +953,13 @@ function create_projector_d(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 
         @tensor L[(β);(α)] := Kd[β,v1,v2,v3]*Ku[α,v1,v2,v3]
         
-        U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, split = :no, svd_type = svd_type);
+        #U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, split = :no, svd_type = svd_type);
+        U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, χ = Bond_env, svd_type = svd_type, space_type = Space_type);
 
 
-        S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
-        
+        #S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+        S_L_chi_inv_sqrt = pinv(sqrt_sv(S_L_chi); rtol = 10^-8)
+
         @tensor Pup[(i,);(j1,j2,j3)] := S_L_chi_inv_sqrt[i,v1] *  U_L_chi'[v1,β] *Kd[β,j1,j2,j3]
         @tensor Pdown[(i1,i2,i3);(j,)] := Ku[α,i1,i2,i3] * V_L_chi_d'[α,v2] * S_L_chi_inv_sqrt[v2,j]
 
@@ -917,9 +983,11 @@ function create_projector_d(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
     
     @tensor L[(β1,β2,β3);(α1,α2,α3)] := Kd[β1,β2,β3,v1,v2,v3] * Ku[α1,α2,α3,v1,v2,v3]
 
-    U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, svd_type = svd_type);
+    #U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, Bond_env, Space_type = Space_type, svd_type = svd_type);
+    U_L_chi, S_L_chi, V_L_chi_d = unique_tsvd(L, χ = Bond_env, svd_type = svd_type, space_type = Space_type);
 
-    S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+    #S_L_chi_inv_sqrt = pinv_sqrt(S_L_chi, 10^-8)
+    S_L_chi_inv_sqrt = pinv(sqrt_sv(S_L_chi); rtol = 10^-8)
 
     @tensor Pup[(i,);(j1,j2,j3)] := S_L_chi_inv_sqrt[i,v1] *  U_L_chi'[v1,β1,β2,β3] *Kd[β1,β2,β3,j1,j2,j3]
     @tensor Pdown[(i1,i2,i3);(j,)] := Ku[α1,α2,α3,i1,i2,i3] * V_L_chi_d'[α1,α2,α3,v2] * S_L_chi_inv_sqrt[v2,j]
@@ -931,7 +999,8 @@ function create_projector_d(env, loc, loc_d, Bond_env, k, l, Lx, Ly; Space_type 
 
         #this might need to be ignored for AD - but probably not
         #sv_trunc_ratio = diag(S_L_chi.data)[end] / diag(S_L_chi.data)[1]
-        trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2)))
+        #trunc_err = sqrt(abs(1-(sum(diag(S_L_chi.data).^2)/norm(L)^2)))
+        trunc_err = sqrt(abs(1-(norm(S_L_chi)^2/norm(L)^2)))
 
         return P, trunc_err 
     else

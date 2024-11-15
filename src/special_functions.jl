@@ -1,8 +1,169 @@
+#=
+function convert_Dict_to_TM(A::AbstractDict, codomain, domain) 
+    TM = TensorMap(A, codomain, domain)
+    return TM
+end
+
+function add_key_to_Dict(D::AbstractDict, key::Sector, val::DenseMatrix)
+    D[key] = val
+    return D
+end
+
+function create_Dict_for_TM(s::DataType)
+    #display("hello")
+    D = Dict{s, DenseMatrix}() 
+    return D
+end
+=#
+
+ #here I adjust the function to do not cut into degenerate singular values!
+#It might be good to define an additional stuct TruncationDimensionDegenerate that can be imported such that we can use multiple dispatch.
+#This might also be good, as we can pass an accuracy for the comparison of the singular values.
+struct TruncationDimensionDegenerate <: TensorKit.TruncationScheme
+    dim::Int
+    rtol::Real
+end
+truncdimdeg(d::Int, t::Real) = TruncationDimensionDegenerate(d,t)
+
+function TensorKit._truncate!(V::TensorKit.SectorVectorDict, trunc::TruncationDimensionDegenerate, p=2)
+    I = keytype(V)
+    S = real(eltype(valtype(V)))
+    truncdim = TensorKit.SectorDict{I,Int}(c => length(v) for (c, v) in V)
+
+    last_cut_sv = 0.0 #define variable for the last SV we cut.
+
+    while sum(dim(c) * d for (c, d) in truncdim) > trunc.dim
+        cmin = TensorKit._findnexttruncvalue(V, truncdim, p)
+        cmin === nothing && break
+
+        last_cut_sv = V[cmin][end] #remember last SV that you cut
+
+        truncdim[cmin] -= 1 
+    end
+
+    if last_cut_sv == 0.0
+        
+    else
+
+        cmin = TensorKit._findnexttruncvalue(V, truncdim, p)
+        isnothing(cmin) && return truncdim #if there is nothing left to truncate, return ...
+        
+        largest_sv_remaining = V[cmin][truncdim[cmin]] #find the smallest SV remaining
+
+        while isapprox(largest_sv_remaining, last_cut_sv; rtol = trunc.rtol) #here one compares - the rtol could also be passed in a new TruncationDimensionDegenerate. trunc.rtol
+            #display("I am cutting extra!")
+            truncdim[cmin] -= 1 #if the smalles remaining SV is roughly degenerate with the last one we cut, cut it as well. 
+            cmin = TensorKit._findnexttruncvalue(V, truncdim, p) #find the next one and see if it is degenerate as well.
+            isnothing(cmin) && break 
+            largest_sv_remaining = V[cmin][truncdim[cmin]] #new smallest SV that is remaining
+        end
+    end
+
+    truncerr = TensorKit._norm((c => view(v, (truncdim[c] + 1):length(v)) for (c, v) in V), p,
+                     zero(S))
+    for (c, v) in V
+        TensorKit.resize!(v, truncdim[c])
+    end
+    return V, truncerr
+end
+
+#=
+function TensorKit._compute_truncdim(Σdata, trunc::TruncationDimensionDegenerate, p=2)
+    I = keytype(Σdata)
+    truncdim = SectorDict{I,Int}(c => length(v) for (c, v) in Σdata)
+
+    #=what we aim to do is to is: if we cut a singular value: remember its value and check if the in the remaining 
+    singular values there is one more SV that has the same value (approximately). If thats the case cut it as well.
+    Afterwards repeat this process until we removed all degenerate SV.=#
+
+    #=the way I want to do this is: 
+    1. define a variable "last_cut_sv = 0" before the while loop
+    2. in the while loop that changes the "truncdim" dictionary find out what is the SV (call that "sv_cut") that we are removing and set last_cut_sv = sv_cut
+    3. after the while loop is done, and we have truncated such that we have reached the desired Truncation dimension we repeat the search once more for the next smaller
+        while the next SV is approximately the last one we cut
+            cut this one as well and 
+        end
+        return truncdim
+        =#
+    last_cut_sv = 0
+
+    while sum(dim(c) * d for (c, d) in truncdim) > trunc.dim #trunc.dim in this case is just an Int! , aka the desired truncation dimension
+        cmin = _findnexttruncvalue(Σdata, truncdim, p)
+        isnothing(cmin) && break
+        #here note the particular SV and update the last_cut_sv
+        last_cut_sv = Σdata[cmin][end]
+        truncdim[cmin] -= 1
+    end
+
+    cmin = _findnexttruncvalue(Σdata, truncdim, p)
+    isnothing(cmin) && return truncdim #if there is nothing left to truncate, return ...
+    largest_sv_remaining = Σdata[cmin][end] #find the smallest SV remaining
+
+    while isapprox(largest_sv_remaining, last_cut_sv; rtol = trunc.rtol) #here one compares - the rtol could also be passed in a new TruncationDimensionDegenerate. trunc.rtol
+        truncdim[cmin] -= 1 #if the smalles remaining SV is roughly degenerate with the last one we cut, cut it as well. 
+        cmin = _findnexttruncvalue(Σdata, truncdim, p) #find the next one and see if it is degenerate as well.
+        isnothing(cmin) && break
+        largest_sv_remaining = Σdata[cmin][end] #new smallest SV that is remaining
+    end
+
+    return truncdim
+end =#
+
+function get_corner_sv(env_arr)
+    sv_arr = []
+    for i in eachindex(env_arr)
+        _, Sul, _ = tsvd(env_arr[i].ul)
+        _, Sur, _ = tsvd(env_arr[i].ur, ((1,),(2,)))
+        _, Sdl, _ = tsvd(env_arr[i].dl, ((1,),(2,)))
+        _, Sdr, _ = tsvd(env_arr[i].dr)
+
+        #=
+        sv_ul = diag(Sul.data)
+        sv_ur = diag(Sur.data)
+        sv_dl = diag(Sdl.data)
+        sv_dr = diag(Sdr.data)
+        =#
+        
+        Sul_data = convert(Array, Sul)
+        Sur_data = convert(Array, Sur)
+        Sdl_data = convert(Array, Sdl)
+        Sdr_data = convert(Array, Sdr)
+        sv_ul = diag(Sul_data)
+        sv_ur = diag(Sur_data)
+        sv_dl = diag(Sdl_data)
+        sv_dr = diag(Sdr_data)
+
+
+        append!(sv_arr, sv_ul)
+        #append!(sv_arr, sv_ur)
+        #append!(sv_arr, sv_dl)
+        #append!(sv_arr, sv_dr)
+    end
+    return sv_arr
+end
+
+function compare_sv(sv_arr, sv_arr_old)
+        if length(sv_arr) != length(sv_arr_old)
+            #@info "the sectors of the environment tensors have not yet converged!"
+            return :unconverged
+        else
+            max = maximum(maximum.(abs.(sv_arr .- sv_arr_old)))
+            #max = maximum(abs.(sv_arr .- sv_arr_old))
+
+        end
+        return max
+end
+
 function rank(A::TensorMap)
     rank_dom = length(dims(codomain(A)))
     rank_codom = length(dims(domain(A)))
     
     return rank_dom + rank_codom
+end
+
+function sqrt_sv(S)
+    s_sqrt = real(sqrt(S))
+    return s_sqrt
 end
 
 function sqrtTM(S)
@@ -78,7 +239,9 @@ function tsvd_GKL(A; χ::Int = 20, space_type = ℂ)
         #@info "number of Krylov-subspace restarts, number of operations with the linear map, list of residuals" info.numiter info.numops info.normres
 
         #@info "the SVD is now calculated by conventional means..."
-        U, S, Vd = tsvd(A, trunc = truncspace(space_type^χ), alg = TensorKit.SDD())
+        #U, S, Vd = tsvd(A, trunc = truncspace(space_type^χ), alg = TensorKit.SDD())
+        U, S, Vd = tsvd(A, trunc = truncdim(χ), alg = TensorKit.SDD())
+
         return U, S, Vd
 
     end
@@ -110,14 +273,101 @@ function _elementwise_mult(a::AbstractTensorMap,b::AbstractTensorMap)
     dst
 end
 
-function unique_tsvd(A, Bond_env; Space_type = ℝ, svd_type = :GKL, split = :yes)
+function create_block_fix_mat(Umat_block_i::DenseMatrix)
+
+    if eltype(Umat_block_i) == Float64
+        absmax = x -> abs(minimum(x)) > abs(maximum(x)) ? minimum(x) : maximum(x)
+        index_comp = x -> findmax(x)[2] > findmin(x)[2] ? minimum(x) : maximum(x)
+        descide_func = x -> isapprox(abs(minimum(x)), abs(maximum(x)); rtol = 1e-8) ? index_comp(x) : absmax(x)
+        fix_mat = diagm(sign.(map(descide_func, eachcol(Umat_block_i))))
+
+    elseif eltype(Umat_block_i) == ComplexF64
+        if size(Umat_block_i) == (1,1)
+            fix_mat = [exp.(-angle(Umat_block_i[1,1])*im);;]
+        else
+            absmax = x -> x[partialsortperm(abs.(x), 1:2; rev = true)][1]
+            index_comp = x -> partialsortperm(abs.(x), 1:2; rev = true)[2] > partialsortperm(abs.(x), 1:2; rev = true)[1] ? x[partialsortperm(abs.(x), 1:2; rev = true)][1] : x[partialsortperm(abs.(x), 1:2; rev = true)][2]
+            descide_func = x -> isapprox(abs.(x)[partialsortperm(abs.(x), 1:2; rev = true)][1] , abs.(x)[partialsortperm(abs.(x), 1:2; rev = true)][2] ; rtol = 10^-8) ? index_comp(x) : absmax(x)
+            fix_mat = diagm(exp.(-angle.(map(descide_func, eachcol(Umat_block_i)))*im))
+        end
+
+    else
+        error("in the unique_tsvd() function we have elements that are neither Float64 or ComplexF64! Huch?")
+    end
+
+    return fix_mat
+end
+
+function create_gauge_fixing_tensor(U::TensorMap)
+
+    fix_mat_dict = Dict{sectortype(codomain(U)), DenseMatrix}() 
+    #fix_mat_dict = create_Dict_for_TM(sectortype(codomain(U)))
+
+    for i in blocks(U)
+        Umat_block_i = i[2] #data from this block
+
+        fix_mat = create_block_fix_mat(Umat_block_i::DenseMatrix)
+
+        #fix_mat_dict = add_key_to_Dict(fix_mat_dict, i[1], fix_mat)
+        fix_mat_dict[i[1]] = fix_mat
+
+    end
+    #@info typeof(fix_mat_dict)
+    #@info domain(U)
+    fix_TM = TensorMap(fix_mat_dict, domain(U), domain(U))
+    #fix_TM = convert_Dict_to_TM(fix_mat_dict, domain(U), domain(U))
+
+    return fix_TM
+end
+
+function unique_tsvd(A; svd_type = :full, χ = 0, space_type = ℂ)
+
+    if svd_type == :full
+
+        U, S, Vd = tsvd(A, trunc = notrunc(), alg = TensorKit.SDD())
+
+    elseif svd_type == :full_trunc
+
+        #tspace = Rep[U₁](0=>6, 1=>2, -1=>2)
+        U, S, Vd = tsvd(A, trunc = truncdimdeg(χ,10^-12), alg = TensorKit.SDD())
+        #display(typeof(U))
+        #U, S, Vd = tsvd(A, trunc = truncdim(χ), alg = TensorKit.SDD())
+
+        #U, S, Vd = tsvd(A, trunc = truncspace(tspace), alg = TensorKit.SDD())
+        #U, S, Vd = tsvd(A, trunc = truncspace(tspace) & truncbelow(0.01), alg = TensorKit.SDD())
+        #U, S, Vd = tsvd(A, trunc = truncbelow(0.01), alg = TensorKit.SDD())
+
+        #U, S, Vd = tsvd(A, trunc = , alg = TensorKit.SDD())
+
+        #display(S.data)
+        #display("hello")
+    elseif svd_type == :GKL
+
+        U, S, Vd = tsvd_GKL(A, χ = χ, space_type = space_type)
+            
+    else
+
+        display("you have not specified a truncation type in function: unique_svd")    
+
+    end
+    
+    fix_TM = create_gauge_fixing_tensor(U)
+
+    U_fixed = U*fix_TM
+    Vd_fixed = fix_TM' * Vd
+
+    return U_fixed, S, Vd_fixed
+end
+
+function unique_tsvd(A, Bond_env; Space_type = ℝ, svd_type = :accuracy, split = :yes)
 
     if svd_type == :accuracy
         U, S, Vd = tsvd(A, trunc = notrunc(), alg = TensorKit.SDD())
 
-    elseif svd_type == :envbond
-
+    elseif svd_type == :full_trunc
+        
         U, S, Vd = tsvd(A, trunc = truncspace(Space_type^Bond_env), alg = TensorKit.SDD())
+        #U, S, Vd = tsvd(A, trunc = truncdim(Bond_env), alg = TensorKit.SDD())
     
     elseif svd_type == :GKL
 
@@ -148,7 +398,6 @@ function unique_tsvd(A, Bond_env; Space_type = ℝ, svd_type = :GKL, split = :ye
         descide_func = x -> isapprox(abs.(x)[partialsortperm(abs.(x), 1:2; rev = true)][1] , abs.(x)[partialsortperm(abs.(x), 1:2; rev = true)][2] ; rtol = 10^-8) ? index_comp(x) : absmax(x)
         fix_mat = diagm(exp.(-angle.(map(descide_func, eachcol(UMat)))*im))
     end
-    
     Ufixed1 = UMat*fix_mat
     Vdfixed1 = fix_mat' * VdMat
     if split == :yes
@@ -165,6 +414,141 @@ function unique_tsvd(A, Bond_env; Space_type = ℝ, svd_type = :GKL, split = :ye
     end
         
     return UfTensor , S , VdfTensor
+end
+
+function ini_multisite(loc; space_type = ℝ)
+
+    env_arr = Array{Any}(undef, length(loc))
+    
+    if space_type == ℝ
+        trivialspace = ProductSpace{CartesianSpace, 0}()
+    elseif space_type == ℂ
+        trivialspace =  ProductSpace{ComplexSpace, 0}()
+    elseif space_type == :U1
+        trivialspace = ProductSpace{GradedSpace{U1Irrep, TensorKit.SortedVectorDict{U1Irrep, Int64}}, 0}()
+    elseif space_type == :Z2
+        trivialspace = ProductSpace{GradedSpace{Z2Irrep, Tuple{Int64, Int64}}, 0}()
+    elseif space_type == :O2_int
+        trivialspace = ProductSpace{GradedSpace{CU1Irrep, TensorKit.SortedVectorDict{CU1Irrep, Int64}}, 0}()
+    elseif space_type == :O2_halfint
+        trivialspace = ProductSpace{GradedSpace{CU1Irrep, TensorKit.SortedVectorDict{CU1Irrep, Int64}}, 0}()
+    else
+        @warn "something went wrong when initializing the environments."
+    end
+
+    if space_type == ℝ
+
+        C_ul = TensorMap([1.0], space_type^1 ← space_type^1)
+        C_dr = TensorMap([1.0], space_type^1 ← space_type^1)
+        C_dl = TensorMap([1.0], trivialspace ← space_type^1 ⊗ space_type^1)
+        C_ur = TensorMap([1.0], space_type^1 ⊗ space_type^1 ← trivialspace)
+
+    elseif  space_type == ℂ
+
+        C_ul = TensorMap([1.0 + 0.0*im], space_type^1 ← space_type^1)
+        C_dr = TensorMap([1.0 + 0.0*im], space_type^1 ← space_type^1)
+        C_dl = TensorMap([1.0 + 0.0*im], trivialspace ← space_type^1 ⊗ space_type^1)
+        C_ur = TensorMap([1.0 + 0.0*im], space_type^1 ⊗ space_type^1 ← trivialspace)
+
+    elseif space_type == :U1
+        V = U₁Space(0=>1)
+        
+        #=
+        C_ul = TensorMap([ComplexF64(1.0+0.0*im)], V ← V)
+        C_dr = TensorMap([ComplexF64(1.0+0.0*im)], V ← V)
+        C_dl = TensorMap([ComplexF64(1.0+0.0*im)], trivialspace ← V ⊗ V)
+        C_ur = TensorMap([ComplexF64(1.0+0.0*im)], V ⊗ V ← trivialspace)
+        =#
+#= 
+        C_ul = TensorMap(randn, V ← V)
+        C_dr = TensorMap(randn, V ← V)
+        C_dl = TensorMap(randn, trivialspace ← V ⊗ V)
+        C_ur = TensorMap(randn, V ⊗ V ← trivialspace) =#
+
+        
+        C_ul = TensorMap([1.0], V ← V)
+        C_dr = TensorMap([1.0], V ← V)
+        C_dl = TensorMap([1.0], trivialspace ← V ⊗ V)
+        C_ur = TensorMap([1.0], V ⊗ V ← trivialspace)
+        
+    elseif space_type == :Z2
+        V = ℤ₂Space(0=>1)
+
+        C_ul = TensorMap([1.0], V ← V)
+        C_dr = TensorMap([1.0], V ← V)
+        C_dl = TensorMap([1.0], trivialspace ← V ⊗ V)
+        C_ur = TensorMap([1.0], V ⊗ V ← trivialspace)
+    else
+        error("beware! you are trying to initialize CTMRG-environments with new symmetries! generalize the function ini_multisite()!")
+    end
+
+
+
+    for i in eachindex(loc)
+
+        dim_loc_l = TensorKit.dim(codomain(loc[i])[1])
+        dim_loc_d = TensorKit.dim(codomain(loc[i])[2])
+        dim_loc_r = TensorKit.dim(domain(loc[i])[1])
+        dim_loc_u = TensorKit.dim(domain(loc[i])[2])
+        
+        space_loc_l = codomain(loc[i])[1]
+        space_loc_d = codomain(loc[i])[2]
+        space_loc_r = domain(loc[i])[1]
+        space_loc_u = domain(loc[i])[2]
+
+        if space_type == ℝ
+            
+            Tr_l = TensorMap(Matrix(1.0I,dim_loc_l,dim_loc_l), space_type^1 ← (space_loc_l)' ⊗ space_loc_l ⊗ space_type^1)
+            Tr_d = TensorMap(Matrix(1.0I,dim_loc_d,dim_loc_d), space_type^1 ← space_type^1 ⊗ (space_loc_d)' ⊗ space_loc_d)
+            Tr_r = TensorMap(Matrix(1.0I,dim_loc_r,dim_loc_r), (space_loc_r)' ⊗ space_loc_r ⊗ space_type^1 ← space_type^1)
+            Tr_u = TensorMap(Matrix(1.0I,dim_loc_u,dim_loc_u), space_type^1 ⊗ (space_loc_u)' ⊗ space_loc_u ← space_type^1)
+        elseif space_type == ℂ
+
+            Tr_l = TensorMap(Matrix((1.0+0.0im)I,dim_loc_l,dim_loc_l), space_type^1 ← (space_loc_l)' ⊗ space_loc_l ⊗ space_type^1)
+            Tr_d = TensorMap(Matrix((1.0+0.0im)I,dim_loc_d,dim_loc_d), space_type^1 ← space_type^1 ⊗ (space_loc_d)' ⊗ space_loc_d)
+            Tr_r = TensorMap(Matrix((1.0+0.0im)I,dim_loc_r,dim_loc_r), (space_loc_r)' ⊗ space_loc_r ⊗ space_type^1 ← space_type^1)
+            Tr_u = TensorMap(Matrix((1.0+0.0im)I,dim_loc_u,dim_loc_u), space_type^1 ⊗ (space_loc_u)' ⊗ space_loc_u ← space_type^1)
+
+            
+        elseif space_type == :U1
+            V = U₁Space(0=>1)
+            
+#=              Tr_l = TensorMap(randn, V ← (space_loc_l)' ⊗ space_loc_l ⊗ V)
+            Tr_d = TensorMap(randn, V ← V ⊗ (space_loc_d)' ⊗ space_loc_d)
+            Tr_r = TensorMap(randn, (space_loc_r)' ⊗ space_loc_r ⊗ V ← V)
+            Tr_u = TensorMap(randn,  V ⊗ (space_loc_u)' ⊗ space_loc_u ← V) =# 
+            
+            
+            Tr_l = TensorMap(Matrix((1.0)I,dim_loc_l,dim_loc_l), V ← (space_loc_l)' ⊗ space_loc_l ⊗ V)
+            Tr_d = TensorMap(Matrix((1.0)I,dim_loc_d,dim_loc_d), V ← V ⊗ (space_loc_d)' ⊗ space_loc_d)
+            Tr_r = TensorMap(Matrix((1.0)I,dim_loc_r,dim_loc_r), (space_loc_r)' ⊗ space_loc_r ⊗ V ← V)
+            Tr_u = TensorMap(Matrix((1.0)I,dim_loc_u,dim_loc_u),  V ⊗ (space_loc_u)' ⊗ space_loc_u ← V)
+            
+        elseif space_type == :Z2
+            V = ℤ₂Space(0=>1)
+            
+#=              Tr_l = TensorMap(randn, V ← (space_loc_l)' ⊗ space_loc_l ⊗ V)
+            Tr_d = TensorMap(randn, V ← V ⊗ (space_loc_d)' ⊗ space_loc_d)
+            Tr_r = TensorMap(randn, (space_loc_r)' ⊗ space_loc_r ⊗ V ← V)
+            Tr_u = TensorMap(randn,  V ⊗ (space_loc_u)' ⊗ space_loc_u ← V) =# 
+            
+            
+            Tr_l = TensorMap(Matrix((1.0)I,dim_loc_l,dim_loc_l), V ← (space_loc_l)' ⊗ space_loc_l ⊗ V)
+            Tr_d = TensorMap(Matrix((1.0)I,dim_loc_d,dim_loc_d), V ← V ⊗ (space_loc_d)' ⊗ space_loc_d)
+            Tr_r = TensorMap(Matrix((1.0)I,dim_loc_r,dim_loc_r), (space_loc_r)' ⊗ space_loc_r ⊗ V ← V)
+            Tr_u = TensorMap(Matrix((1.0)I,dim_loc_u,dim_loc_u),  V ⊗ (space_loc_u)' ⊗ space_loc_u ← V)
+            
+
+        end
+
+        env_arr[i] = (ul = C_ul, ur = C_ur, dl = C_dl, dr = C_dr,
+                                        u = Tr_u, r = Tr_r, d = Tr_d, l = Tr_l)
+        #display(C_ul)
+        #display(Tr_u)
+        #env_arr[i] = envs(C_ul, C_dl, C_dr, C_ur, Tr_l, Tr_d, Tr_r, Tr_u)
+    end
+    #display("initialization with symmetric tensors works.")
+    return env_arr
 end
 
 #old and ugly function that initializes the environment tensors.
@@ -264,7 +648,7 @@ function ini_multisite(loc, loc_d, Pattern_arr, loc_arr; Space_type = Space_type
     return env_arr
 end
 
-function initialize_PEPS(Bond_loc, Dim_loc, Number_of_PEPS; Number_type = Float64, lattice = :square, identical = false, seed = 1236, data_type = :TensorMap, Space_type = ℂ)
+function initialize_PEPS(Bond_loc, Dim_loc, Number_of_PEPS; Number_type = Float64, lattice = :square, identical = false, seed = 1236, data_type = :TensorMap, Space_type = ℂ, mean_shift = false)
     #=
     NOTE1: 
     The number of tensors refers to the number of coarse grained tensors that result on the square lattice!
@@ -285,7 +669,13 @@ function initialize_PEPS(Bond_loc, Dim_loc, Number_of_PEPS; Number_type = Float6
     space_virt = Space_type^Bond_loc
     space_loc = Space_type^Dim_loc
 
-    randn_with_seed = (tuple) -> randn(rng, Number_type, tuple)
+    #randn_with_seed = (tuple) -> randn(rng, Number_type, tuple)
+    if mean_shift == false
+        randn_with_seed = (tuple) -> randn(rng, Number_type, tuple)
+    else
+        randn_with_seed = (tuple) -> randn(rng, Number_type, tuple) + mean_shift*fill(1,tuple)
+    end
+
 
     #generically the input will be TensorMaps---> the alternative will be removed at some point.
     if data_type == :TensorMap
@@ -394,7 +784,7 @@ function pattern_function(arr_in, Pattern_arr)
     return copy(buf)
 end
 
-function normalization_convention(A; fix_phase = true)
+function normalization_convention(A; fix_phase = false)
     N = Zygote.@ignore norm(A) 
     A1 = (2*A/N)
 
@@ -569,6 +959,84 @@ function convert_loc_in_to_TM(loc_in; lattice = :honeycomb, Space_type = ℝ, id
 
     end
     return copy(buf)
+end
+
+function compare_tensor_structure(A, B)
+    #check if it is a map between the same spaces
+    space(A) == space(B) || return false
+
+    #check if the blocksectors are identical
+    blocksectors(A) == blocksectors(B) || return false
+
+    #if the blocksectors are identical check if the sizes of the blocks are the same!
+    #iterate over all blocks
+    for i in blocksectors(A)
+        #check if they have the same size
+        size(block(A, i)) == size(block(B, i)) || return false
+    end
+
+    #if we return at this point the tensors have the same structure
+    return true
+
+end
+
+function test_elementwise_convergence(env_arr, env_arr_old, conv_crit)
+    
+    #this counts the number of environment-tensors that are NOT YET converged element wise.
+    number = 0
+
+    #go through every set of environment tensors corresponding to every local tensor.
+    for i in 1:size(env_arr)[1]
+
+        #=at a first step we need to make sure that the blocksectors
+        of all tensors are the same and that these sectors have the same dimension.
+        Only if this is the case does a element wise comparison make sense.=#
+
+        compare_tensor_structure(env_arr[i].ul, env_arr_old[i].ul) || return :sectors_unconverged
+        compare_tensor_structure(env_arr[i].dl, env_arr_old[i].dl) || return :sectors_unconverged
+        compare_tensor_structure(env_arr[i].dr, env_arr_old[i].dr) || return :sectors_unconverged
+        compare_tensor_structure(env_arr[i].ur, env_arr_old[i].ur) || return :sectors_unconverged
+        compare_tensor_structure(env_arr[i].u, env_arr_old[i].u) || return :sectors_unconverged
+        compare_tensor_structure(env_arr[i].r, env_arr_old[i].r) || return :sectors_unconverged
+        compare_tensor_structure(env_arr[i].d, env_arr_old[i].d) || return :sectors_unconverged
+        compare_tensor_structure(env_arr[i].l, env_arr_old[i].l) || return :sectors_unconverged
+
+        #we now compute all the difference-tensors and put them in an array. This is done just so we can iterate
+
+        comp_ul = env_arr[i].ul - env_arr_old[i].ul 
+        
+        comp_dl = env_arr[i].dl - env_arr_old[i].dl 
+        
+        comp_dr = env_arr[i].dr - env_arr_old[i].dr 
+        
+        comp_ur = env_arr[i].ur - env_arr_old[i].ur 
+        
+        comp_u = env_arr[i].u - env_arr_old[i].u 
+        
+        comp_r = env_arr[i].r - env_arr_old[i].r 
+        
+        comp_d = env_arr[i].d - env_arr_old[i].d 
+        
+        comp_l = env_arr[i].l - env_arr_old[i].l 
+        
+        comp_arr = [comp_ul, comp_dl, comp_dr, comp_ur, comp_u, comp_r, comp_d, comp_l]
+
+        #display("hello")
+        for comp in comp_arr
+            for b in blocks(comp) #b[1] is the label of the block while b[2] is the data
+                #display(maximum(abs.(b[2])))
+                if maximum(abs.(b[2])) < conv_crit #if this condition is fulfilled, the data in this block is converged element-wise
+                    #display(maximum(abs.(b[2])))
+                    continue
+                else #in this case the data of this block is not converged. Add to the number of unconverged tensors and move on the the next tensor
+                    #display(maximum(abs.(b[2])))
+                    number += 1
+                    break 
+                end
+            end
+        end
+    end
+    return number
 end
 
 function test_elementwise_convergence(env_arr, env_arr_old, Pattern_arr, conv_crit)

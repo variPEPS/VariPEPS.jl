@@ -1,5 +1,6 @@
 function converge_environment(loc, loc_d, env_arr, Bond_env, Pattern_arr, maxiter_pre, ϵ_pre; Space_type = ℝ, Projector_type = :full, conv_info = false, svd_type = :GKL, adjust_χ = false)
     
+    sv_arr_old = 0
     S_test_array_old = 0
     S_test_array2_old = 0
     env_arr_old = 0
@@ -11,13 +12,24 @@ function converge_environment(loc, loc_d, env_arr, Bond_env, Pattern_arr, maxite
     CTMiter = 0
     for i in 1:maxiter_pre
         
-        S_test_array, S_test_array2, env_arr = CTMRG_step(env_arr, loc, loc_d, Bond_env, Pattern_arr; Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
+        env_arr = CTMRG_step(env_arr, loc, loc_d, Bond_env, Pattern_arr; Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
         
+        sv_arr = get_corner_sv(env_arr)
+
+        if i>2
+            if conv_info
+                m = compare_sv(sv_arr, sv_arr_old)
+                println("largest SV-difference of the C tensors is $m")
+            end
+        end
+
         CTMiter += 1
 
-        if  i>2 && maximum((S_test_array - S_test_array_old)) < ϵ_pre && maximum(S_test_array2 - S_test_array2_old) < ϵ_pre
-            number = test_elementwise_convergence(env_arr, env_arr_old, Pattern_arr, 10^-6)
-            
+        #if  i>2 && maximum((S_test_array - S_test_array_old)) < ϵ_pre && maximum(S_test_array2 - S_test_array2_old) < ϵ_pre
+        if i>2 && compare_sv(sv_arr, sv_arr_old) isa Number && compare_sv(sv_arr, sv_arr_old) < ϵ_pre
+            #number = test_elementwise_convergence(env_arr, env_arr_old, Pattern_arr, 10^-6)
+            number = test_elementwise_convergence(env_arr, env_arr_old, 10^-6)
+
             if SV_converged == false
                 if conv_info
                     @info "It took $(i) CTMRG steps to converge the SV to $(ϵ_pre)"
@@ -63,7 +75,7 @@ function converge_environment(loc, loc_d, env_arr, Bond_env, Pattern_arr, maxite
         end
 
         if i == maxiter_pre
-            if maximum((S_test_array - S_test_array_old)) < ϵ_pre && maximum(S_test_array2 - S_test_array2_old) < ϵ_pre
+            if compare_sv(sv_arr, sv_arr_old) isa Number && compare_sv(sv_arr, sv_arr_old) < ϵ_pre
                 @info "here the singular values did converge but to $(ϵ_pre) the tensors did not converge element wise"
             else
                 @info "here the tensors never converged element wise up to 10^-6 and the SV did not converge either"
@@ -84,9 +96,8 @@ function converge_environment(loc, loc_d, env_arr, Bond_env, Pattern_arr, maxite
         end
 
         env_arr_old = env_arr
-      
-        S_test_array_old = S_test_array
-        S_test_array2_old = S_test_array2
+        sv_arr_old = sv_arr
+
     end
 
     if adjust_χ != false
@@ -118,7 +129,7 @@ end
 
 function energy_and_gradient(loc_in, Bond_env, Pattern_arr; maxiter_grad = 100, Space_type = ℝ, maxiter_pre = 500, ϵ_pre = 10^-6, ϵ_grad = 10^-6,
     Projector_type = :half, Ham_parameters = :nothing, model = :Heisenberg_square, lattice = :square, identical = false, sym_tensors = false, D = nothing, Dphys = nothing, 
-    reuse_env = (false, nothing), svd_type = :envbond, adjust_χ = false, spiral = false)
+    reuse_env = (false, nothing), svd_type = :envbond, adjust_χ = false, spiral = false, conv_info = false)
 
     if spiral == false
         u_paras = false
@@ -156,11 +167,12 @@ function energy_and_gradient(loc_in, Bond_env, Pattern_arr; maxiter_grad = 100, 
     =#
 
     if reuse_env[1] == false
-        env_arr = Zygote.@ignore ini_multisite(loc, loc_d, Pattern_arr, PEPS_arr; Space_type = Space_type) 
+        #env_arr = Zygote.@ignore ini_multisite(loc, loc_d, Pattern_arr, PEPS_arr; Space_type = Space_type) 
+        env_arr = ini_multisite(PEPS_arr; space_type = Space_type) 
 
         #converge the environment tensors until all of them are converged element wise
         if adjust_χ == false
-            fixed_point_env, CTMiter = converge_environment(loc, loc_d, env_arr, Bond_env, Pattern_arr, maxiter_pre, ϵ_pre; Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
+            fixed_point_env, CTMiter = converge_environment(loc, loc_d, env_arr, Bond_env, Pattern_arr, maxiter_pre, ϵ_pre; Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type, conv_info = conv_info)
         else
             #in case we adjust the environment bond dimension during the creation of the fixed point environments we use the keyword "adjust_χ".
             #in this case we also return the environment bond dimension.
@@ -201,19 +213,32 @@ function energy_and_gradient(loc_in, Bond_env, Pattern_arr; maxiter_grad = 100, 
     end
 
     if fixed_point_env == :unconverged
+    #=if for some reason we encounter a PEPS during a optimization step, for which the CTMRG does not converge element wise,
+    we do not want the optimization to stop, but rather just ignore this point and move on.=#
+    #MAKE AN EXEPTION FOR THE SPIRAL CASE: in that case the loc_in looks 
 
         gradient_of_ones = []
         for i in 1:length(loc_in)
             if loc_in[1] isa TensorMap
-                onesTM = ones(ComplexF64, size(loc_in[i].data))
-                push!(gradient_of_ones, TensorMap(onesTM, space(loc_in[i])))
+                #onesTM = ones(ComplexF64, size(loc_in[i].data))
+                onesTM = TensorMap(ones, space(loc_in[i]))
+
+                #push!(gradient_of_ones, TensorMap(onesTM, space(loc_in[i])))
+                push!(gradient_of_ones, onesTM)
             else
                 push!(gradient_of_ones, ones(ComplexF64, size(loc_in[i]))) 
             end
         end
-        gradient_of_ones_out = convert(typeof(loc_in), gradient_of_ones)
 
-        env_arr = Zygote.@ignore ini_multisite(loc, loc_d, Pattern_arr, PEPS_arr; Space_type = Space_type) 
+
+        gradient_of_ones_out = convert(typeof(loc_in), gradient_of_ones)
+        if spiral == true
+            u_ones = convert(typeof(u_paras), [1.0,1.0])
+            gradient_of_ones_out = [gradient_of_ones_out, u_ones]
+        end
+
+        #env_arr = Zygote.@ignore ini_multisite(loc, loc_d, Pattern_arr, PEPS_arr; Space_type = Space_type) 
+        env_arr = ini_multisite(PEPS_arr; space_type = Space_type) 
 
         if adjust_χ != false
             return 10.0, gradient_of_ones_out, env_arr, Float64(CTMiter), Bond_env
@@ -236,7 +261,7 @@ function energy_and_gradient(loc_in, Bond_env, Pattern_arr; maxiter_grad = 100, 
         #display(grad_u_paras)
     end
 
-    _, back = Zygote.pullback((x,y) -> CTMRG_step(x, loc, y, Bond_env, Pattern_arr; Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)[3], fixed_point_env, loc_d); 
+    _, back = Zygote.pullback((x,y) -> CTMRG_step(x, loc, y, Bond_env, Pattern_arr; Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type), fixed_point_env, loc_d); 
     back_env = x -> back(x)[1];
     back_loc_d = x -> back(x)[2];
     

@@ -46,13 +46,19 @@ function ctmrg(loc_d_in, Bond_env, Pattern_arr; maxiter = 400, ϵ = 1e-7 , Space
     #Create the adjoint "or Bra" PEPS tensors, and let this be ignores by the AD-engine, such that they behave as independent Tensors
     loc = Zygote.@ignore copy(loc_d)
     
+    #test
+    env_arr = ini_multisite(loc_d_in; space_type = Space_type) 
+
     #now we need to initialize the environment arr.
+    #=
     if reuse_envs == false
         env_arr = ini_multisite(loc, loc_d, Pattern_arr, PEPS_arr; Space_type = Space_type) 
     else 
         env_arr = reuse_envs
     end
-        
+    =#
+    sv_arr_old = 0
+    sv_arr_old2 = 0
     S_test_array_old = 0
     S_test_array2_old = 0
     iterations = 0
@@ -65,10 +71,43 @@ function ctmrg(loc_d_in, Bond_env, Pattern_arr; maxiter = 400, ϵ = 1e-7 , Space
             println("CTM-RG iteration $i")
         end
         
-        S_test_array, S_test_array2, env_arr = CTMRG_step(env_arr, loc, loc_d, Bond_env, Pattern_arr; Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
-     
+        env_arr = CTMRG_step(env_arr, loc, loc_d, Bond_env, Pattern_arr; Space_type = Space_type, Projector_type = Projector_type, svd_type = svd_type)
+
+
+        #PUT ALL OF THIS CONVERGENCE SEARCH INTO A FUNCTION!
+        sv_arr = get_corner_sv(env_arr)
+
+        if i>2
+            if conv_info
+                m = compare_sv(sv_arr, sv_arr_old)
+                println("largest SV-difference of the C tensors is $m")
+                if m isa Number && m > 1.9
+                    display("hello")
+                    return sv_arr, sv_arr_old
+                end
+            end
+        end
+        if i>5
+            if conv_info
+                m2 = compare_sv(sv_arr, sv_arr_old2)
+                println("largest SV-difference of the C tensors 2 steps appart is $m2")
+            end
+        end
+        if i>2 && compare_sv(sv_arr, sv_arr_old) isa Number && compare_sv(sv_arr, sv_arr_old) < ϵ
+            break
+        end
+
+        if i>15 && compare_sv(sv_arr, sv_arr_old2) isa Number && compare_sv(sv_arr, sv_arr_old2) < ϵ
+            break
+        end
+
+        sv_arr_old2 = sv_arr_old
+
+        sv_arr_old = sv_arr
+
         #this is just some convergence check based on the SV of the environment tensors. 
         #For the calculation of the gradient we check for element wise convergence.
+        #=
         if  i>2 && maximum(abs.(S_test_array - S_test_array_old)) < ϵ && maximum(abs.(S_test_array2 - S_test_array2_old)) < ϵ  
             break
         end
@@ -87,7 +126,7 @@ function ctmrg(loc_d_in, Bond_env, Pattern_arr; maxiter = 400, ϵ = 1e-7 , Space
         S_test_array_old = S_test_array
         S_test_array2_old = S_test_array2
         iterations = i
-        
+        =#
         if i == maxiter
             @info "CTMRG did not converge after maxiter = $(maxiter) steps."
             converging = false
@@ -135,7 +174,7 @@ function ctmrg(loc_d_in, Bond_env, Pattern_arr; maxiter = 400, ϵ = 1e-7 , Space
     end
 
     if output_envs == true
-        append!(output, env_arr)
+        append!(output, [env_arr])
     end
 
     return output

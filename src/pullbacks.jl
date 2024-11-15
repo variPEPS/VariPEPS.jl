@@ -1,3 +1,87 @@
+function ChainRulesCore.rrule(::typeof(pinv), S::TensorMap; kwargs...)
+    if isdiag(S)
+        y = pinv(S; kwargs...)
+        function pinv_pullback(ybar)
+            fbar = NoTangent()
+            
+            Δy = unthunk(ybar)
+            
+            #b = convert_TM_to_mat(y)
+
+            derivTM = TensorMap(zeros, eltype(S), domain(S), domain(S))
+
+            for i in blocks(y)
+                Spinv_block = i[2]
+                deriv_block = -1 .* diag(Spinv_block).^2
+                block(derivTM, i[1]) .= diagm(deriv_block)
+            end
+
+            Abar = derivTM * Δy
+            
+            return fbar, Abar
+        end
+        return y, pinv_pullback
+    else
+        error("The funcion pinv() is used and we only defined its pullback for digaonal matrices/tensors! Generalize!")
+    end
+end
+
+function ChainRulesCore.rrule(::typeof(sqrt), S::TensorMap)
+    if isdiag(S)
+        y = sqrt(S)
+        function sqrt_pullback(ybar)
+            fbar = NoTangent()
+            
+            Δy = unthunk(ybar)
+            
+            #b = convert_TM_to_mat(y)
+
+            derivTM = TensorMap(zeros, eltype(S), domain(S), domain(S))
+
+            for i in blocks(y)
+                ssqrt_block = i[2]
+                deriv_block = (1/2) .* (1 ./ diag(ssqrt_block))
+                block(derivTM, i[1]) .= diagm(deriv_block)
+            end
+
+            Abar = derivTM * Δy
+            
+            return fbar, Abar
+        end
+        return y, sqrt_pullback
+    else
+        error("The funcion sqrt() is used and we only defined its pullback for digaonal matrices/tensors! Generalize!")
+    end
+end
+
+function ChainRulesCore.rrule(::typeof(sqrt_sv), S::TensorMap)
+    if isdiag(S)
+        y = sqrt_sv(S)
+        function sqrt_sv_pullback(ybar)
+            fbar = NoTangent()
+            
+            Δy = unthunk(ybar)
+            
+            #b = convert_TM_to_mat(y)
+
+            derivTM = TensorMap(zeros, eltype(S), domain(S), domain(S))
+
+            for i in blocks(y)
+                ssqrt_block = i[2]
+                deriv_block = (1/2) .* (1 ./ diag(ssqrt_block))
+                block(derivTM, i[1]) .= diagm(deriv_block)
+            end
+
+            Abar = derivTM * Δy
+            
+            return fbar, Abar
+        end
+        return y, sqrt_sv_pullback
+    else
+        error("The funcion sqrt_sv() is used and we only defined its pullback for digaonal matrices/tensors! Generalize!")
+    end
+end
+
 function ChainRulesCore.rrule(::typeof(sqrtTM), S::TensorMap)
     y = sqrtTM(S)
     function sqrtTM_pullback(ybar)
@@ -56,7 +140,7 @@ function ChainRulesCore.rrule(::typeof(pinv_sqrt), S::TensorMap, tol::Number)
     return y, pinv_sqrt_pullback
 end
 
-function ChainRulesCore.rrule(::typeof(TensorKit.scalar), A::TensorMap)
+#=function ChainRulesCore.rrule(::typeof(TensorKit.scalar), A::TensorMap)
     y = TensorKit.scalar(A)   
     function scalar_pullback(Δy)
         fbar = NoTangent()
@@ -64,7 +148,17 @@ function ChainRulesCore.rrule(::typeof(TensorKit.scalar), A::TensorMap)
         return fbar, Abar
     end
     return y, scalar_pullback
-end
+end=#
+
+#= function ChainRulesCore.rrule(::typeof(TensorKit.scalar), t::AbstractTensorMap)
+    val = scalar(t)
+    function scalar_pullback(Δval)
+        t2 = similar(t)
+        first(blocks(t2))[2][1] = unthunk(Δval)
+        return NoTangent(), t2
+    end
+    return val, scalar_pullback
+end =#
 
 function ChainRulesCore.rrule(::typeof(convert_TM_to_mat), A::TensorMap)
     y = convert_TM_to_mat(A)   # is that ok? or tol = ...?
@@ -81,6 +175,80 @@ function ChainRulesCore.rrule(::typeof(convert_TM_to_mat), A::TensorMap)
     end
     return y, convert_TM_to_mat_pullback
 end
+#=
+function ChainRulesCore.rrule(::typeof(create_Dict_for_TM), s::DataType)
+    y = create_Dict_for_TM(s)   
+    function create_Dict_for_TM_pullback(ȳ)
+        Δy = unthunk(ȳ)
+        #display(Δy)
+        fbar = NoTangent()
+  
+        sbar = NoTangent()
+        #println("I am being used here, HELOOOO")
+        return fbar, sbar
+    end
+    display(y)
+    display(create_Dict_for_TM_pullback)
+    return y, create_Dict_for_TM_pullback
+end
+
+function ChainRulesCore.rrule(::typeof(convert_Dict_to_TM), A::Dict, codom::VectorSpace, dom::VectorSpace)
+    y = convert_Dict_to_TM(A, codom, dom)   
+    function convert_Dict_to_TM_pullback(ȳ)
+        fbar = NoTangent()
+        codombar = NoTangent()
+        dombar = NoTangent()
+
+        Δy = unthunk(ȳ)
+        
+        #Aref = deepcopy(A) #nessessary? 
+        
+        Abar = convert(Dict,blocks(Δy))
+        #println("I am being used here")
+        return fbar, Abar, codombar, dombar
+    end
+    return y, convert_Dict_to_TM_pullback
+end
+
+function ChainRulesCore.rrule(::typeof(add_key_to_Dict), D::AbstractDict, key::Sector, val::DenseMatrix)
+    y = add_key_to_Dict(D, key, val)   
+    function add_key_to_Dict_pullback(ȳ)
+        fbar = NoTangent()
+        keybar = NoTangent()
+
+        Δy = unthunk(ȳ)
+        
+        valbar = Δy[key]
+        #display(valbar)
+        #display(Δy)
+        delete!(Δy, key)
+        #display(valbar)
+        #display(Δy)
+        #println("I am being used here")
+        return fbar, Δy, keybar, valbar
+    end
+    return y, add_key_to_Dict_pullback
+end
+=#
+function ChainRulesCore.rrule(::typeof(create_gauge_fixing_tensor), U::TensorMap)
+    y = create_gauge_fixing_tensor(U)   
+    function create_gauge_fixing_tensor_pullback(ȳ)
+        fbar = NoTangent()
+        Δy = unthunk(ȳ)
+
+        Ubar = similar(U)
+
+        for i in blocks(Δy) #going through each block of the incoming gradient
+            fix_mat, block_pullback_fct = Zygote.pullback(create_block_fix_mat, block(U, i[1])) #calculate the pullback for every block
+            Ubar_block = block_pullback_fct(i[2])[1] #the pullback is applied for every block to the incoming gradient
+            block(Ubar, i[1]) .= Ubar_block #write the new gradient into the Ubar TensorMap
+        end
+
+        return fbar, Ubar
+    end
+    return y, create_gauge_fixing_tensor_pullback
+end
+
 
 #this is just a minor variation on the tsvd backwards-rule from TensorKitAD
 function ChainRulesCore.rrule(::typeof(tsvd_GKL), t::AbstractTensorMap;kwargs...)

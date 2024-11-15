@@ -331,6 +331,93 @@ function exp_val_energy_generic_square_lattice_model(env_arr, loc, loc_d, Ham_pa
         end
     
     end
+
+        #display("hello2")
+    for i in minimum(Pattern_arr):maximum(Pattern_arr)
+        if haskey(ham_term_array[i], :box)
+
+            pos = findfirst(isequal(i), Pattern_arr)
+
+            #if pos = (i,j) we are looking for pos_right = (i+1, j) and pos_down = (i,j+1)! recall we have the notation (x,y)!
+            N = size(Pattern_arr)[1]
+            M = size(Pattern_arr)[2]
+            n = pos[1]
+            m = pos[2]
+            n_plus = mod(mod((n-1),N) + 1,N) + 1
+            m_plus = mod(mod((m-1),M) + 1,M) + 1    
+            m_minus = mod(m-2,M) + 1
+
+            pos_right = CartesianIndex(n_plus, m)
+            pos_down = CartesianIndex(n, m_plus)
+            pos_up = CartesianIndex(n, m_minus)
+            pos_down_right = CartesianIndex(n_plus, m_plus)
+            pos_up_right = CartesianIndex(n_plus, m_minus)
+
+
+            #here we calculate the horizontal expectation value
+
+            env_loc = env[pos[1], pos[2]]
+            loc_d_tensor = loc_d[pos[1], pos[2]]
+            loc_tensor = loc[pos[1], pos[2]]
+
+            env_loc_r = env[pos_right[1],pos_right[2]]
+            loc_d_tensor_r = loc_d[pos_right[1],pos_right[2]]
+            loc_tensor_r = loc[pos_right[1],pos_right[2]]
+
+            env_loc_d = env[pos_down[1],pos_down[2]]
+            loc_d_tensor_d = loc_d[pos_down[1],pos_down[2]]
+            loc_tensor_d = loc[pos_down[1],pos_down[2]]
+
+            env_loc_u = env[pos_up[1],pos_up[2]]
+            loc_d_tensor_u = loc_d[pos_up[1],pos_up[2]]
+            loc_tensor_u = loc[pos_up[1],pos_up[2]]
+
+            env_loc_dr = env[pos_down_right[1],pos_down_right[2]]
+            loc_d_tensor_dr = loc_d[pos_down_right[1],pos_down_right[2]]
+            loc_tensor_dr = loc[pos_down_right[1],pos_down_right[2]]
+
+            env_loc_ur = env[pos_up_right[1],pos_up_right[2]]
+            loc_d_tensor_ur = loc_d[pos_up_right[1],pos_up_right[2]]
+            loc_tensor_ur = loc[pos_up_right[1],pos_up_right[2]]
+
+            
+            @tensor order = (q1, w3, x3d, p1d, x3u, p1u, r1,     v1, w1, x1d, u1d, x1u, u1u, l1,    w2, x2d, x2u,     v3, z1, u3d, y1d, u3u, y1u, d1,     z3, q3, p3d, y3d, p3u, y3u, dr1,     z2, y2d, y2u,     v2, u2u, u2d, p2u, p2d, q2) begin 
+            
+                    norm_dr[] := env_loc.ul[v1,w1] * env_loc.u[w1,u1d,u1u,w2] * env_loc_r.u[w2,p1d,p1u,w3] * env_loc_r.ur[w3,q1] * 
+            
+                                        env_loc.l[v2,x1d,x1u,v1] * env_loc_r.r[x3d,x3u,q2,q1] * 
+                                    
+                                        conj(loc_d_tensor[x1d,u2d,x2d,u1d,l1]) * loc_tensor[x1u,u2u,x2u,u1u,l1] * conj(loc_d_tensor_r[x2d,p2d,x3d,p1d,r1]) * loc_tensor_r[x2u,p2u,x3u,p1u,r1]  * 
+                                    
+                                        conj(loc_d_tensor_d[y1d,u3d,y2d,u2d,d1]) * loc_tensor_d[y1u,u3u,y2u,u2u,d1] * conj(loc_d_tensor_dr[y2d,p3d,y3d,p2d,dr1]) * loc_tensor_dr[y2u,p3u,y3u,p2u,dr1] * 
+                                    
+                                        env_loc_d.l[v3,y1d,y1u,v2] * env_loc_dr.r[y3d,y3u,q3,q2] * 
+                                    
+                                        env_loc_d.dl[z1,v3] * env_loc_d.d[z1,z2,u3d,u3u] * env_loc_dr.d[z2,z3,p3d,p3u] * env_loc_dr.dr[z3,q3] end 
+
+
+            @tensor @tensor order = (q1, w3, x3d, p1d, x3u, p1u,     v1, w1, x1d, u1d, x1u, u1u,    w2, x2d, x2u,     v3, z1, u3d, y1d, u3u, y1u,     z3, q3, p3d, y3d, p3u, y3u,     z2, y2d, y2u,     v2, u2u, u2d, p2u, p2d, q2,   r1,r2,d1,d2, l1, l2, dr1, dr2) begin 
+                        
+                    exp_val_box_dr[] := env_loc.ul[v1,w1] * env_loc.u[w1,u1d,u1u,w2] * env_loc_r.u[w2,p1d,p1u,w3] * env_loc_r.ur[w3,q1] * 
+                                        
+                                        env_loc.l[v2,x1d,x1u,v1] * env_loc_r.r[x3d,x3u,q2,q1] * 
+                                    
+                                        conj(loc_d_tensor[x1d,u2d,x2d,u1d,l2]) * loc_tensor[x1u,u2u,x2u,u1u,l1] * conj(loc_d_tensor_r[x2d,p2d,x3d,p1d,r2]) * loc_tensor_r[x2u,p2u,x3u,p1u,r1]  * 
+
+                                        ham_term_array[i].box[l2,d2,dr2,r2,l1,d1,dr1,r1] * 
+                                    
+                                        conj(loc_d_tensor_d[y1d,u3d,y2d,u2d,d2]) * loc_tensor_d[y1u,u3u,y2u,u2u,d1] * conj(loc_d_tensor_dr[y2d,p3d,y3d,p2d,dr2]) * loc_tensor_dr[y2u,p3u,y3u,p2u,dr1] * 
+                                    
+                                        env_loc_d.l[v3,y1d,y1u,v2] * env_loc_dr.r[y3d,y3u,q3,q2] * 
+                                    
+                                        env_loc_d.dl[z1,v3] * env_loc_d.d[z1,z2,u3d,u3u] * env_loc_dr.d[z2,z3,p3d,p3u] * env_loc_dr.dr[z3,q3] end
+
+            energy_density_nnn += TensorKit.scalar(exp_val_box_dr) / TensorKit.scalar(norm_dr)
+
+        end
+    
+    end
+
     #display(energy_density_nnn)
     energy_density_tot_per_site = (energy_density_local + energy_density_nn + energy_density_nnn) / length(minimum(Pattern_arr):maximum(Pattern_arr))
 
