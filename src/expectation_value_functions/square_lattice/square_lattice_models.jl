@@ -1,5 +1,7 @@
 function use_Heisenberg_square_lattice(Ham_parameters, loc, pattern_arr; Space_type = ℂ)
 
+    if Space_type != :U1 && Space_type != :Z2
+        #display("ola mista")
     h = Ham_parameters.h
     J = Ham_parameters.J
     dir = Ham_parameters.dir
@@ -23,7 +25,47 @@ function use_Heisenberg_square_lattice(Ham_parameters, loc, pattern_arr; Space_t
     end
 
     return ham_term_arr
+
+    elseif Space_type == :U1
+
+        #display("hello")
+        h = Ham_parameters.h
+        J = Ham_parameters.J
+        dir = Ham_parameters.dir
+    
+        int_term = Heisenberg_interaction_operators_U1(; Space_type = :U1)
+    
+        vertical_term = J * int_term
+    
+        horizontal_term = J * int_term
+    
+        ham_term_arr = []
+    
+        for i in minimum(pattern_arr):maximum(pattern_arr)
+            push!(ham_term_arr, (hor = horizontal_term, vert = vertical_term))
+        end
+
+        return ham_term_arr
+
+    elseif Space_type == :Z2
+
+        Sx = 1/2 * TensorMap([0 +1 ; +1 0], ComplexSpace(2), ComplexSpace(2));
+        Sy = 1/2 * TensorMap([0 -1im ; +1im 0], ComplexSpace(2), ComplexSpace(2));
+        Sz = 1/2 * TensorMap([+1 0 ; 0 -1], ComplexSpace(2), ComplexSpace(2));
+        nonSymH = Sx ⊗ Sx + Sy ⊗ Sy + Sz ⊗ Sz
+
+        P = Z2Space(0 => 1, 1 => 1)
+        hamZ2 = TensorMap(convert(Array, nonSymH), P ⊗ P, P ⊗ P)
+
+        ham_term_arr = []
+        for i in minimum(pattern_arr):maximum(pattern_arr)
+            push!(ham_term_arr, (hor = hamZ2, vert = hamZ2))
+        end
+
+        return ham_term_arr
+    end
 end
+
 
 function use_J1J2model_square_lattice(Ham_parameters, loc, pattern_arr; Space_type = ℂ)
 
